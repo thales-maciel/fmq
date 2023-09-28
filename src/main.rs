@@ -1,8 +1,8 @@
 extern crate serde;
 extern crate serde_yaml;
-use std::{collections::HashMap, path::PathBuf, fs::read_to_string};
 use clap::Parser;
 use itertools::Itertools;
+use std::{collections::HashMap, fs::read_to_string, path::PathBuf};
 
 fn extract_front_matter(input: &str) -> Option<String> {
     if !input.starts_with("---") {
@@ -61,20 +61,28 @@ fn main() {
     let cli = Cli::parse();
 
     // validate paths are not empty
-    if cli.files.is_empty() { panic!("at least one file required") }
+    if cli.files.is_empty() {
+        panic!("at least one file required")
+    }
     // validate every path is a file
-    for p in &cli.files { if !p.is_file() { panic!("path is not a file") } }
+    for p in &cli.files {
+        if !p.is_file() {
+            panic!("path is not a file")
+        }
+    }
 
     // Validate arguments:
-    let args = Args{
-        select: cli.select.map(|v| v.split(" ").map(|s| s.to_string()).collect()),
+    let args = Args {
+        select: cli
+            .select
+            .map(|v| v.split(" ").map(|s| s.to_string()).collect()),
         condition: cli.condition,
         sort_by: cli.order_by,
         paths: cli.files,
     };
 
     // Create a place to put the results into
-    let mut processed: Vec<SourceFile> = vec!();
+    let mut processed: Vec<SourceFile> = vec![];
 
     // > Parallelize it. For each file:
     for path in args.paths {
@@ -84,7 +92,9 @@ fn main() {
 
         if let Some(cond) = &args.condition {
             // TODO: parse the condition query
-            if fm.get(cond).is_none() { continue; }
+            if fm.get(cond).is_none() {
+                continue;
+            }
         }
         processed.push(SourceFile { path, metadata: fm });
     }
@@ -93,18 +103,17 @@ fn main() {
 
     // > do we have to sort?
     if let Some(sort_by) = args.sort_by {
-        processed
-            .sort_by(|a, b| {
-                let ay = a.metadata.get(&sort_by).unwrap_or(&serde_yaml::Value::Null);
-                let by = b.metadata.get(&sort_by).unwrap_or(&serde_yaml::Value::Null);
-                let lel = ay.partial_cmp(&by).unwrap_or(std::cmp::Ordering::Equal);
-                lel
-            })
+        processed.sort_by(|a, b| {
+            let ay = a.metadata.get(&sort_by).unwrap_or(&serde_yaml::Value::Null);
+            let by = b.metadata.get(&sort_by).unwrap_or(&serde_yaml::Value::Null);
+            let lel = ay.partial_cmp(&by).unwrap_or(std::cmp::Ordering::Equal);
+            lel
+        })
     };
 
     if let Some(fields) = &args.select {
         for res in processed {
-            let mut values: Vec<String> = vec!();
+            let mut values: Vec<String> = vec![];
             for field in fields {
                 let raw_value = res.metadata.get(field);
                 match raw_value {
@@ -112,7 +121,7 @@ fn main() {
                         let mut val = serde_yaml::to_string(raw).unwrap_or("".into());
                         val.pop();
                         values.push(val);
-                    },
+                    }
                     None => values.push("null".into()),
                 }
             }
@@ -121,9 +130,10 @@ fn main() {
         }
     } else {
         for res in processed {
-            let mut values: Vec<String> = vec!();
+            let mut values: Vec<String> = vec![];
             for k in res.metadata.keys().sorted() {
-                let mut val = serde_yaml::to_string(res.metadata.get(k).unwrap()).unwrap_or("".into());
+                let mut val =
+                    serde_yaml::to_string(res.metadata.get(k).unwrap()).unwrap_or("".into());
                 val.pop();
                 values.push(val);
             }
@@ -132,4 +142,3 @@ fn main() {
         }
     }
 }
-

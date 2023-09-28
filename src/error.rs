@@ -1,3 +1,2 @@
 #[derive(thiserror::Error, Debug)]
-pub enum FmqError {
-}
+pub enum FmqError {}

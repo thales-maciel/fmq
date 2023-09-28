@@ -7,7 +7,7 @@ pub enum File {
     Partial,
     None,
     Missing,
-    Invalid
+    Invalid,
 }
 
 fn path(file: File) -> PathBuf {
@@ -23,17 +23,14 @@ fn path(file: File) -> PathBuf {
 #[test]
 fn dry_run() {
     let mut cmd = Command::cargo_bin("fmq").unwrap();
-    let assert = cmd
-        .assert();
+    let assert = cmd.assert();
     assert.failure();
 }
 
 #[test]
 fn happy() {
     let mut cmd = Command::cargo_bin("fmq").unwrap();
-    let assert = cmd
-        .arg(path(File::Full))
-        .assert();
+    let assert = cmd.arg(path(File::Full)).assert();
     assert
         .success()
         .stdout("./tests/fixtures/full.md, 2023-09-26, asdf jkl, 0, Lorem Ipsum\n");
@@ -95,33 +92,22 @@ fn condition() {
 #[test]
 fn no_args() {
     let mut cmd = Command::cargo_bin("fmq").unwrap();
-    let assert = cmd
-        .arg(path(File::Full))
-        .assert();
+    let assert = cmd.arg(path(File::Full)).assert();
     assert.success();
 
     let mut cmd = Command::cargo_bin("fmq").unwrap();
-    let assert = cmd
-        .arg(path(File::Partial))
-        .assert();
+    let assert = cmd.arg(path(File::Partial)).assert();
     assert.success();
 
     let mut cmd = Command::cargo_bin("fmq").unwrap();
-    let assert = cmd
-        .arg(path(File::Missing))
-        .assert();
+    let assert = cmd.arg(path(File::Missing)).assert();
     assert.failure();
 
     let mut cmd = Command::cargo_bin("fmq").unwrap();
-    let assert = cmd
-        .arg(path(File::None))
-        .assert();
+    let assert = cmd.arg(path(File::None)).assert();
     assert.success();
 
     let mut cmd = Command::cargo_bin("fmq").unwrap();
-    let assert = cmd
-        .arg(path(File::Invalid))
-        .assert();
+    let assert = cmd.arg(path(File::Invalid)).assert();
     assert.success();
 }
-
