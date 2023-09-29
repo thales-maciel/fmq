@@ -75,7 +75,7 @@ fn main() {
     let args = Args {
         select: cli
             .select
-            .map(|v| v.split(" ").map(|s| s.to_string()).collect()),
+            .map(|v| v.split(' ').map(|s| s.to_string()).collect()),
         condition: cli.condition,
         sort_by: cli.order_by,
         paths: cli.files,
@@ -106,10 +106,9 @@ fn main() {
     // > do we have to sort?
     if let Some(sort_by) = args.sort_by {
         processed.sort_by(|a, b| {
-            let ay = a.metadata.get(&sort_by).unwrap_or(&serde_yaml::Value::Null);
-            let by = b.metadata.get(&sort_by).unwrap_or(&serde_yaml::Value::Null);
-            let lel = ay.partial_cmp(&by).unwrap_or(std::cmp::Ordering::Equal);
-            lel
+            let a = a.metadata.get(&sort_by).unwrap_or(&serde_yaml::Value::Null);
+            let b = b.metadata.get(&sort_by).unwrap_or(&serde_yaml::Value::Null);
+            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
         })
     };
 
