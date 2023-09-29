@@ -87,8 +87,8 @@ fn main() {
     // > Parallelize it. For each file:
     for path in args.paths {
         let file_contents = read_to_string(&path).unwrap();
-        let Some(Ok(fm)) = extract_front_matter(&file_contents)
-            .map(|s| parse_front_matter(&s)) else { continue; };
+        let Some(Ok(fm)) = extract_front_matter(&file_contents).map(|s| parse_front_matter(&s))
+        else { continue; };
 
         if let Some(cond) = &args.condition {
             // TODO: parse the condition query
