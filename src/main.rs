@@ -127,7 +127,9 @@ fn main() {
                 .map(|s| Query::try_from(s.to_string()).unwrap())
                 .collect()
         }),
-        condition: cli.condition.map(|cond| Condition::try_from(cond.as_str()).unwrap()),
+        condition: cli
+            .condition
+            .map(|cond| Condition::try_from(cond.as_str()).unwrap()),
         sort_by: cli.order_by,
         paths: cli.files,
     };
