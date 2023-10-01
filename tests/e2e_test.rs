@@ -82,7 +82,7 @@ fn other_sort() {
 fn condition() {
     let mut cmd = Command::cargo_bin("fmq").unwrap();
     let assert = cmd
-        .args(&["-s", "title date", "-c", "title"])
+        .args(&["-s", "title date", "-c", "date == 2023-09-26"])
         .arg(path(File::Full))
         .arg(path(File::Partial))
         .arg(path(File::Invalid))
@@ -90,7 +90,7 @@ fn condition() {
         .assert();
     assert
         .success()
-        .stdout("./tests/fixtures/full.md, Lorem Ipsum, 2023-09-26\n./tests/fixtures/partial.md, Another Title, 2023-09-27\n");
+        .stdout("./tests/fixtures/full.md, Lorem Ipsum, 2023-09-26\n");
 }
 
 #[test]
