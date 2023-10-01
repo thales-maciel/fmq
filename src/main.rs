@@ -1,7 +1,7 @@
 extern crate serde;
 extern crate serde_yaml;
 use clap::Parser;
-use serde_yaml::{Value, Mapping};
+use serde_yaml::{Mapping, Value};
 use std::{fs::read_to_string, path::PathBuf};
 
 fn extract_front_matter(input: &str) -> Option<String> {
@@ -31,9 +31,58 @@ fn parse_front_matter(fm: &str) -> Result<Metadata, serde_yaml::Error> {
 
 struct Args {
     pub select: Option<Vec<Query>>,
-    pub condition: Option<String>,
+    pub condition: Option<Condition>,
     pub sort_by: Option<String>,
     pub paths: Vec<PathBuf>,
+}
+
+#[derive(Debug)]
+enum Ops {
+    EQ,
+    NEQ,
+    GT,
+    GTE,
+    LT,
+    LTE,
+}
+
+impl TryFrom<&str> for Ops {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "==" => Ok(Self::EQ),
+            "!=" => Ok(Self::NEQ),
+            ">" => Ok(Self::GT),
+            ">=" => Ok(Self::GTE),
+            "<" => Ok(Self::LT),
+            "<=" => Ok(Self::LTE),
+            v => Err(format!("No matching operator for {}", v)),
+        }
+    }
+}
+
+struct Condition {
+    query: Query,
+    op: Ops,
+    value: String,
+}
+
+impl TryFrom<&str> for Condition {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let mut parts = value.splitn(3, ' ');
+        let query_str = parts.next().ok_or("Missing Query")?;
+        let op_str = parts.next().ok_or("Missing operator part")?;
+        let value_str = parts.next().ok_or("Missing value part")?;
+
+        let query = Query::try_from(query_str.to_string())?;
+        let op = Ops::try_from(op_str)?;
+        let value = value_str.to_string();
+
+        Ok(Self { query, op, value })
+    }
 }
 
 struct SourceFile {
@@ -73,10 +122,16 @@ fn main() {
 
     // Validate arguments:
     let args = Args {
-        select: cli
-            .select
-            .map(|v| v.split(' ').map(|s| Query::try_from(s.to_string()).unwrap()).collect()),
-        condition: cli.condition,
+        select: cli.select.map(|v| {
+            v.split(' ')
+                .map(|s| Query::try_from(s.to_string()).unwrap())
+                .collect()
+        }),
+        condition: if let Some(cond) = cli.condition {
+            Some(Condition::try_from(cond.as_str()).unwrap())
+        } else {
+            None
+        },
         sort_by: cli.order_by,
         paths: cli.files,
     };
@@ -93,8 +148,42 @@ fn main() {
         };
 
         if let Some(cond) = &args.condition {
-            // TODO: parse condition query
-            if fm.get(cond).is_none() {
+            if let Some(field) = get_value(&cond.query, &fm) {
+                if let Some(s) = field.as_str() {
+                    match cond.op {
+                        Ops::EQ => {
+                            if s != cond.value {
+                                continue;
+                            }
+                        }
+                        Ops::NEQ => {
+                            if s == cond.value {
+                                continue;
+                            }
+                        }
+                        Ops::GT => {
+                            if s <= cond.value.as_str() {
+                                continue;
+                            }
+                        }
+                        Ops::GTE => {
+                            if s < cond.value.as_str() {
+                                continue;
+                            }
+                        }
+                        Ops::LT => {
+                            if s >= cond.value.as_str() {
+                                continue;
+                            }
+                        }
+                        Ops::LTE => {
+                            if s > cond.value.as_str() {
+                                continue;
+                            }
+                        }
+                    }
+                }
+            } else {
                 continue;
             }
         }
@@ -182,7 +271,7 @@ impl TryFrom<String> for Query {
                     if let Ok(index) = index_str.parse::<usize>() {
                         res.push(QueryAccessor::Index(index));
                     } else {
-                        return Err(format!("Invalid index: {}", index_str))
+                        return Err(format!("Invalid index: {}", index_str));
                     }
                 }
                 _ => current_key.push(c),
@@ -207,9 +296,9 @@ pub fn get_value(query: &Query, metadata: &Metadata) -> Option<Value> {
                 if let Some(arr) = current_value.as_sequence() {
                     arr.get(idx.to_owned()).unwrap_or(&Value::Null).clone()
                 } else {
-                    return None
+                    return None;
                 }
-            },
+            }
         }
     }
     Some(current_value)
@@ -223,7 +312,10 @@ mod tests {
     fn test_get_value() {
         let query = Query::try_from("key".to_string()).unwrap();
         let mut meta = Mapping::new();
-        meta.insert(Value::String("key".to_string()), Value::String("value".to_string()));
+        meta.insert(
+            Value::String("key".to_string()),
+            Value::String("value".to_string()),
+        );
         let result = get_value(&query, &meta);
         assert_eq!(result, Some(Value::String("value".to_string())))
     }
@@ -233,7 +325,10 @@ mod tests {
         let query = Query::try_from("key.nested".to_string()).unwrap();
         let mut meta = Mapping::new();
         let mut nested = Mapping::new();
-        nested.insert(Value::String("nested".to_string()), Value::String("value".to_string()));
+        nested.insert(
+            Value::String("nested".to_string()),
+            Value::String("value".to_string()),
+        );
         meta.insert(Value::String("key".to_string()), Value::Mapping(nested));
         let result = get_value(&query, &meta);
         assert_eq!(result, Some(Value::String("value".to_string())))
@@ -248,30 +343,39 @@ mod tests {
     #[test]
     fn test_nested_key() {
         let query = Query::try_from("key.nested".to_string()).unwrap();
-        assert_eq!(query.0, vec![
-            QueryAccessor::Key("key".to_string()),
-            QueryAccessor::Key("nested".to_string())
-        ]);
+        assert_eq!(
+            query.0,
+            vec![
+                QueryAccessor::Key("key".to_string()),
+                QueryAccessor::Key("nested".to_string())
+            ]
+        );
     }
 
     #[test]
     fn test_key_with_index() {
         let query = Query::try_from("key[0]".to_string()).unwrap();
-        assert_eq!(query.0, vec![
-            QueryAccessor::Key("key".to_string()),
-            QueryAccessor::Index(0)
-        ]);
+        assert_eq!(
+            query.0,
+            vec![
+                QueryAccessor::Key("key".to_string()),
+                QueryAccessor::Index(0)
+            ]
+        );
     }
 
     #[test]
     fn test_nested_key_with_index() {
         let query = Query::try_from("key.nested[0]".to_string());
         match query {
-            Ok(q) => assert_eq!(q.0, vec![
+            Ok(q) => assert_eq!(
+                q.0,
+                vec![
                     QueryAccessor::Key("key".to_string()),
                     QueryAccessor::Key("nested".to_string()),
                     QueryAccessor::Index(0)
-                ]),
+                ]
+            ),
             Err(s) => panic!("{}", s),
         }
     }
