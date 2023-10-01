@@ -38,12 +38,12 @@ struct Args {
 
 #[derive(Debug)]
 enum Ops {
-    EQ,
-    NEQ,
-    GT,
-    GTE,
-    LT,
-    LTE,
+    Eq,
+    Neq,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
 }
 
 impl TryFrom<&str> for Ops {
@@ -51,12 +51,12 @@ impl TryFrom<&str> for Ops {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "==" => Ok(Self::EQ),
-            "!=" => Ok(Self::NEQ),
-            ">" => Ok(Self::GT),
-            ">=" => Ok(Self::GTE),
-            "<" => Ok(Self::LT),
-            "<=" => Ok(Self::LTE),
+            "==" => Ok(Self::Eq),
+            "!=" => Ok(Self::Neq),
+            ">" => Ok(Self::Gt),
+            ">=" => Ok(Self::Gte),
+            "<" => Ok(Self::Lt),
+            "<=" => Ok(Self::Lte),
             v => Err(format!("No matching operator for {}", v)),
         }
     }
@@ -127,11 +127,7 @@ fn main() {
                 .map(|s| Query::try_from(s.to_string()).unwrap())
                 .collect()
         }),
-        condition: if let Some(cond) = cli.condition {
-            Some(Condition::try_from(cond.as_str()).unwrap())
-        } else {
-            None
-        },
+        condition: cli.condition.map(|cond| Condition::try_from(cond.as_str()).unwrap()),
         sort_by: cli.order_by,
         paths: cli.files,
     };
@@ -151,32 +147,32 @@ fn main() {
             if let Some(field) = get_value(&cond.query, &fm) {
                 if let Some(s) = field.as_str() {
                     match cond.op {
-                        Ops::EQ => {
+                        Ops::Eq => {
                             if s != cond.value {
                                 continue;
                             }
                         }
-                        Ops::NEQ => {
+                        Ops::Neq => {
                             if s == cond.value {
                                 continue;
                             }
                         }
-                        Ops::GT => {
+                        Ops::Gt => {
                             if s <= cond.value.as_str() {
                                 continue;
                             }
                         }
-                        Ops::GTE => {
+                        Ops::Gte => {
                             if s < cond.value.as_str() {
                                 continue;
                             }
                         }
-                        Ops::LT => {
+                        Ops::Lt => {
                             if s >= cond.value.as_str() {
                                 continue;
                             }
                         }
-                        Ops::LTE => {
+                        Ops::Lte => {
                             if s > cond.value.as_str() {
                                 continue;
                             }
