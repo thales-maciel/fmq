@@ -33,7 +33,11 @@ fn happy() {
     let assert = cmd.arg(path(File::Full)).assert();
     assert
         .success()
-        .stdout("./tests/fixtures/full.md, 2023-09-26, asdf jkl, 0, Lorem Ipsum\n");
+        .stdout(predicates::str::contains("file: ./tests/fixtures/full.md"))
+        .stdout(predicates::str::contains("date: 2023-09-26"))
+        .stdout(predicates::str::contains("title: Lorem Ipsum"))
+        .stdout(predicates::str::contains("extra: asdf jkl"))
+        .stdout(predicates::str::contains("number: 0"));
 }
 
 #[test]

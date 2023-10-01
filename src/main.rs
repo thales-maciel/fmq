@@ -1,8 +1,8 @@
 extern crate serde;
 extern crate serde_yaml;
 use clap::Parser;
-use itertools::Itertools;
-use std::{collections::HashMap, fs::read_to_string, path::PathBuf};
+use serde_yaml::{Value, Mapping};
+use std::{fs::read_to_string, path::PathBuf};
 
 fn extract_front_matter(input: &str) -> Option<String> {
     if !input.starts_with("---") {
@@ -23,14 +23,14 @@ fn extract_front_matter(input: &str) -> Option<String> {
     None
 }
 
-type Metadata = HashMap<String, serde_yaml::Value>;
+type Metadata = Mapping;
 
 fn parse_front_matter(fm: &str) -> Result<Metadata, serde_yaml::Error> {
     serde_yaml::from_str(fm)
 }
 
 struct Args {
-    pub select: Option<Vec<String>>,
+    pub select: Option<Vec<Query>>,
     pub condition: Option<String>,
     pub sort_by: Option<String>,
     pub paths: Vec<PathBuf>,
@@ -75,7 +75,7 @@ fn main() {
     let args = Args {
         select: cli
             .select
-            .map(|v| v.split(' ').map(|s| s.to_string()).collect()),
+            .map(|v| v.split(' ').map(|s| Query::try_from(s.to_string()).unwrap()).collect()),
         condition: cli.condition,
         sort_by: cli.order_by,
         paths: cli.files,
@@ -84,7 +84,7 @@ fn main() {
     // Create a place to put the results into
     let mut processed: Vec<SourceFile> = vec![];
 
-    // > Parallelize it. For each file:
+    // > For each file:
     for path in args.paths {
         let file_contents = read_to_string(&path).unwrap();
         let Some(Ok(fm)) = extract_front_matter(&file_contents).map(|s| parse_front_matter(&s))
@@ -93,7 +93,7 @@ fn main() {
         };
 
         if let Some(cond) = &args.condition {
-            // TODO: parse the condition query
+            // TODO: parse condition query
             if fm.get(cond).is_none() {
                 continue;
             }
@@ -112,14 +112,14 @@ fn main() {
         })
     };
 
-    if let Some(fields) = &args.select {
+    if let Some(queries) = &args.select {
         for res in processed {
             let mut values: Vec<String> = vec![];
-            for field in fields {
-                let raw_value = res.metadata.get(field);
+            for query in queries {
+                let raw_value = get_value(query, &res.metadata);
                 match raw_value {
                     Some(raw) => {
-                        let mut val = serde_yaml::to_string(raw).unwrap_or("".into());
+                        let mut val = serde_yaml::to_string(&raw).unwrap_or("".into());
                         val.pop();
                         values.push(val);
                     }
@@ -131,15 +131,160 @@ fn main() {
         }
     } else {
         for res in processed {
-            let mut values: Vec<String> = vec![];
-            for k in res.metadata.keys().sorted() {
-                let mut val =
-                    serde_yaml::to_string(res.metadata.get(k).unwrap()).unwrap_or("".into());
-                val.pop();
-                values.push(val);
-            }
-            let escaped_values: String = values.join(", ").escape_default().collect();
-            println!("{}, {}", res.path.display(), escaped_values);
+            let mut val = serde_yaml::to_string(&res.metadata).unwrap();
+            val.pop();
+            println!("file: {}\n{}", res.path.display(), val);
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum QueryAccessor {
+    Key(String),
+    Index(usize),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Query(Vec<QueryAccessor>);
+
+impl TryFrom<String> for Query {
+    type Error = String;
+
+    fn try_from(input: String) -> Result<Self, Self::Error> {
+        let mut res = Vec::new();
+        let mut chars = input.chars().peekable();
+        let mut current_key = String::new();
+
+        while let Some(c) = chars.next() {
+            match c {
+                '.' => {
+                    if !current_key.is_empty() {
+                        res.push(QueryAccessor::Key(current_key.clone()));
+                        current_key.clear();
+                    }
+                }
+                '[' => {
+                    if !current_key.is_empty() {
+                        res.push(QueryAccessor::Key(current_key.clone()));
+                        current_key.clear();
+                    }
+                    let mut index_str = String::new();
+                    while let Some(d) = chars.peek() {
+                        if *d == ']' {
+                            chars.next();
+                            break;
+                        }
+                        index_str.push(chars.next().unwrap());
+                    }
+                    if index_str.is_empty() {
+                        return Err("Unclosed bracket or empty index".to_string());
+                    }
+                    if let Ok(index) = index_str.parse::<usize>() {
+                        res.push(QueryAccessor::Index(index));
+                    } else {
+                        return Err(format!("Invalid index: {}", index_str))
+                    }
+                }
+                _ => current_key.push(c),
+            }
+        }
+
+        if !current_key.is_empty() {
+            res.push(QueryAccessor::Key(current_key));
+        }
+
+        Ok(Self(res))
+    }
+}
+
+pub fn get_value(query: &Query, metadata: &Metadata) -> Option<Value> {
+    let mut current_value = Value::from(metadata.to_owned());
+
+    for accessor in &query.0 {
+        current_value = match accessor {
+            QueryAccessor::Key(key) => current_value[key].clone(),
+            QueryAccessor::Index(idx) => {
+                if let Some(arr) = current_value.as_sequence() {
+                    arr.get(idx.to_owned()).unwrap_or(&Value::Null).clone()
+                } else {
+                    return None
+                }
+            },
+        }
+    }
+    Some(current_value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_value() {
+        let query = Query::try_from("key".to_string()).unwrap();
+        let mut meta = Mapping::new();
+        meta.insert(Value::String("key".to_string()), Value::String("value".to_string()));
+        let result = get_value(&query, &meta);
+        assert_eq!(result, Some(Value::String("value".to_string())))
+    }
+
+    #[test]
+    fn test_get_value_nested() {
+        let query = Query::try_from("key.nested".to_string()).unwrap();
+        let mut meta = Mapping::new();
+        let mut nested = Mapping::new();
+        nested.insert(Value::String("nested".to_string()), Value::String("value".to_string()));
+        meta.insert(Value::String("key".to_string()), Value::Mapping(nested));
+        let result = get_value(&query, &meta);
+        assert_eq!(result, Some(Value::String("value".to_string())))
+    }
+
+    #[test]
+    fn test_single_key() {
+        let query = Query::try_from("key".to_string()).unwrap();
+        assert_eq!(query.0, vec![QueryAccessor::Key("key".to_string())]);
+    }
+
+    #[test]
+    fn test_nested_key() {
+        let query = Query::try_from("key.nested".to_string()).unwrap();
+        assert_eq!(query.0, vec![
+            QueryAccessor::Key("key".to_string()),
+            QueryAccessor::Key("nested".to_string())
+        ]);
+    }
+
+    #[test]
+    fn test_key_with_index() {
+        let query = Query::try_from("key[0]".to_string()).unwrap();
+        assert_eq!(query.0, vec![
+            QueryAccessor::Key("key".to_string()),
+            QueryAccessor::Index(0)
+        ]);
+    }
+
+    #[test]
+    fn test_nested_key_with_index() {
+        let query = Query::try_from("key.nested[0]".to_string());
+        match query {
+            Ok(q) => assert_eq!(q.0, vec![
+                    QueryAccessor::Key("key".to_string()),
+                    QueryAccessor::Key("nested".to_string()),
+                    QueryAccessor::Index(0)
+                ]),
+            Err(s) => panic!("{}", s),
+        }
+    }
+
+    #[test]
+    fn test_invalid_index() {
+        let query = Query::try_from("key.nested[invalid_index]".to_string());
+        assert!(query.is_err());
+    }
+
+    #[test]
+    fn test_unclosed_bracket() {
+        let query = Query::try_from("key.nested[".to_string());
+        assert!(query.is_err());
     }
 }
